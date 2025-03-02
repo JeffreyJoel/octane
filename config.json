@@ -1,35 +1,54 @@
 {
-    "rpcUrl": "https://eclipse.lgns.net/",
-    "maxSignatures": 5,
-    "returnSignature": true,
-    "lamportsPerSignature": 15000,
+    "rpcUrl": "https://api.mainnet-beta.solana.com",
+    "maxSignatures": 2,
+    "lamportsPerSignature": 5000,
     "corsOrigin": true,
     "endpoints": {
         "transfer": {
-            "tokens": []
+            "tokens": [
+                {
+                    "mint": "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v",
+                    "account": "Gj1tcyr5858jdUNxcqYUMnWJJFy4YpRYsyqf9zLmMQa",
+                    "decimals": 6,
+                    "fee": 10000
+                },
+                {
+                    "mint": "Es9vMFrzaCERmJfrF4H2FYD4KCoNkY11McCe8BenwNYB",
+                    "account": "Gj1tcyr5858jdUNxcqYUMnWJJFy4YpRYsyqf9zLmMQa",
+                    "decimals": 6,
+                    "fee": 10000
+                }
+            ]
         },
         "createAssociatedTokenAccount": {
-            "tokens": []
+            "tokens": [
+                {
+                    "mint": "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v",
+                    "account": "Gj1tcyr5858jdUNxcqYUMnWJJFy4YpRYsyqf9zLmMQa",
+                    "decimals": 6,
+                    "fee": 10000
+                },
+                {
+                    "mint": "Es9vMFrzaCERmJfrF4H2FYD4KCoNkY11McCe8BenwNYB",
+                    "account": "Gj1tcyr5858jdUNxcqYUMnWJJFy4YpRYsyqf9zLmMQa",
+                    "decimals": 6,
+                    "fee": 10000
+                }
+            ]
         },
         "whirlpoolsSwap": {
             "tokens": [
                 {
-                    "mint": "AKEWE7Bgh87GPp171b4cJPSSZfmZwQ3KaqYqXoKLNAEE",
-                    "account": "8yEGVBE6fkyGA5ybafAXzNmdxhmKQ3f5GWDs6z4bcXPj",
-                    "decimals": 9,
-                    "fee": 500
+                    "mint": "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v",
+                    "account": "Gj1tcyr5858jdUNxcqYUMnWJJFy4YpRYsyqf9zLmMQa",
+                    "decimals": 6,
+                    "fee": 10000
                 },
                 {
-                    "mint": "BeRUj3h7BqkbdfFU7FBNYbodgf8GCHodzKvF9aVjNNfL",
-                    "account": "FQzTfxfbL5hex6fwTaaJtBwsdToT8LDujZe6VtWv6jwx",
-                    "decimals": 9,
-                    "fee": 2600
-                },
-                {
-                    "mint": "GU7NS9xCwgNPiAdJ69iusFrRfawjDDPjeMBovhV1d4kn",
-                    "account": "9TFNsaSYBUELeSpPSkP5hnXst2uA3AbtQCx4iXa3V4iq",
-                    "decimals": 9,
-                    "fee": 200
+                    "mint": "Es9vMFrzaCERmJfrF4H2FYD4KCoNkY11McCe8BenwNYB",
+                    "account": "Gj1tcyr5858jdUNxcqYUMnWJJFy4YpRYsyqf9zLmMQa",
+                    "decimals": 6,
+                    "fee": 10000
                 }
             ]
         }
