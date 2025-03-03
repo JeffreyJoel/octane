@@ -3,12 +3,14 @@ import {
     buildWhirlpoolClient,
     PDAUtil,
     PoolUtil,
-    SwapQuote, swapQuoteByInputToken,
+    SwapQuote,
+    swapQuoteByInputToken,
     Whirlpool,
-    WhirlpoolContext, WhirlpoolIx,
+    WhirlpoolContext,
+    WhirlpoolIx,
 } from '@orca-so/whirlpools-sdk';
 import { Wallet } from '@project-serum/anchor';
-import { AddressUtil, Percentage } from '@orca-so/common-sdk';
+import { AddressUtil, Percentage, Wallet as OrcaWallet } from '@orca-so/common-sdk';
 import BN from 'bn.js';
 import {
     createAssociatedTokenAccountInstruction,
@@ -26,12 +28,27 @@ export const MESSAGE_TOKEN_KEY = 'whirlpools-swap';
 export function getWhirlpoolsContext(connection: Connection): WhirlpoolContext {
     // We use the context only for getting quotes and looking up instructions, so no need for real keypair
     const wallet = new Wallet(Keypair.generate());
-    return WhirlpoolContext.from(connection, wallet, WHIRLPOOL_PROGRAM_ID);
+    return WhirlpoolContext.from(connection, wallet as OrcaWallet, WHIRLPOOL_PROGRAM_ID);
 }
 
 export function getABMints(sourceMint: PublicKey, targetMint: PublicKey): [PublicKey, PublicKey] {
     const [addressA, addressB] = PoolUtil.orderMints(sourceMint, targetMint);
     return [AddressUtil.toPubKey(addressA), AddressUtil.toPubKey(addressB)];
+}
+
+function findCorrectPool(mintA: PublicKey, mintB: PublicKey): PublicKey {
+    // usdc
+    if ([mintA.toBase58(), mintB.toBase58()].includes('AKEWE7Bgh87GPp171b4cJPSSZfmZwQ3KaqYqXoKLNAEE')) {
+        return new PublicKey('2FR5TF3iDCLzGbWAuejR7LKiUL1J8ERnC1z2WGhC9s6D');
+    }
+
+    // teth
+    if ([mintA.toBase58(), mintB.toBase58()].includes('GU7NS9xCwgNPiAdJ69iusFrRfawjDDPjeMBovhV1d4kn')) {
+        return new PublicKey('BqinHKam4jX8NUYbj2LsMnBYbqFnPvggiyx4PBHPkhSo');
+    }
+
+    // sol
+    return new PublicKey('CFYaUSe34VBEoeKdJBXm9ThwsWoLaQ5stgiA3eUWBwV4');
 }
 
 export async function getPoolAndQuote(
@@ -43,6 +60,7 @@ export async function getPoolAndQuote(
     slippingTolerance: Percentage
 ): Promise<[Whirlpool, SwapQuote]> {
     const client = buildWhirlpoolClient(context);
+    // pool account
     const whirlpoolKey = PDAUtil.getWhirlpool(
         WHIRLPOOL_PROGRAM_ID,
         WHIRLPOOL_CONFIG_KEY,
@@ -58,7 +76,7 @@ export async function getPoolAndQuote(
         slippingTolerance,
         WHIRLPOOL_PROGRAM_ID,
         context.fetcher,
-        true,
+        true
     );
     return [whirlpool, quote];
 }
@@ -70,6 +88,7 @@ export async function getSwapInstructions(
     whirlpool: Whirlpool,
     quote: SwapQuote,
     rentExemptBalance: number,
+    associatedTokenAccountExists: boolean
 ): Promise<TransactionInstruction[]> {
     const associatedSOLAddress = await getAssociatedTokenAddress(NATIVE_MINT, user);
     const setupInstructions = [
