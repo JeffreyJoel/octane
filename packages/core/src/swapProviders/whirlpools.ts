@@ -53,7 +53,7 @@ export async function getPoolAndQuote(
         AddressUtil.toPubKey(mintB),
         WHIRLPOOL_TICK_SPACING
     );
-    const whirlpool = await client.getPool(whirlpoolKey.publicKey, true);
+    const whirlpool = await client.getPool(whirlpoolKey.publicKey);
     const quote = await swapQuoteByInputToken(
         whirlpool,
         sourceMint,
@@ -61,7 +61,7 @@ export async function getPoolAndQuote(
         slippingTolerance,
         WHIRLPOOL_PROGRAM_ID,
         context.fetcher,
-        true
+        // true
     );
     return [whirlpool, quote];
 }
