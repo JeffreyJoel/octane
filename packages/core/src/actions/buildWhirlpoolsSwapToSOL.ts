@@ -100,6 +100,7 @@ export async function buildWhirlpoolsSwapToSOL(
         whirlpool,
         quote,
         await getMinimumBalanceForRentExemptAccount(connection),
+        associatedSOLAddressExists
     );
 
     let feeTransferInstruction: TransactionInstruction | undefined;
