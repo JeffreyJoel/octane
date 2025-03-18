@@ -1,5 +1,5 @@
 import { NextApiRequest, NextApiResponse } from 'next';
-import { VersionedTransaction, PublicKey, TransactionMessage, MessageV0 } from '@solana/web3.js';
+import { VersionedTransaction, PublicKey, MessageV0 } from '@solana/web3.js';
 import base58 from 'bs58';
 import config from '../../../../config.json';
 import { cache, connection, cors, rateLimit, ENV_SECRET_KEYPAIR } from '../../src';
@@ -30,10 +30,9 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
             const message = transaction.message;
             
             // Add the sponsor as a fee payer for the transaction
-            // This is crucial - you need to modify the transaction to make the sponsor a fee payer
             const sponsorPubkey = ENV_SECRET_KEYPAIR.publicKey;
             
-            // Create a new message with the sponsor as a fee payer
+            // Create a new message with the sponsor as a fee payer (first in the list)
             const newMessage = new MessageV0({
                 header: message.header,
                 staticAccountKeys: [
@@ -48,17 +47,19 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
             // Create a new transaction with the modified message
             const newTransaction = new VersionedTransaction(newMessage);
             
-            // Initialize signatures array with the right length
-            newTransaction.signatures = new Uint8Array(newMessage.staticAccountKeys.length * 64);
+            // Initialize signatures array with empty signatures for each key
+            // VersionedTransaction.signatures is an array of Uint8Arrays
+            newTransaction.signatures = new Array(newMessage.staticAccountKeys.length).fill(new Uint8Array(64));
             
             // Sign the transaction with the sponsor's key
+            // This will update the first signature in the array (the fee payer position)
             newTransaction.sign([ENV_SECRET_KEYPAIR]);
             
-            // Return the modified transaction
+            // Return the sponsored transaction
             return res.status(200).json({
                 status: 'ok',
                 transaction: Buffer.from(newTransaction.serialize()).toString('base64'),
-                sponsorSignature: base58.encode(newTransaction.signatures.slice(0, 64))
+                sponsorSignature: base58.encode(newTransaction.signatures[0]) // Get first signature (sponsor's)
             });
         } else {
             // For legacy transactions
