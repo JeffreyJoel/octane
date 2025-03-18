@@ -20,133 +20,96 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
             return res.status(400).json({ status: 'error', message: 'Missing transaction' });
         }
 
-        try {
-            // Deserialize the transaction
-            const transactionBuffer = Buffer.from(transactionBase64, 'base64');
-            const transaction = VersionedTransaction.deserialize(transactionBuffer);
+        // Deserialize the transaction
+        const transactionBuffer = Buffer.from(transactionBase64, 'base64');
+        const transaction = VersionedTransaction.deserialize(transactionBuffer);
 
-            // Debug logging
-            console.log("Transaction type:", transaction.version);
-            console.log("Static account keys count:", 
-                transaction.message instanceof MessageV0 ? 
-                transaction.message.staticAccountKeys.length : 
-                "Not MessageV0");
+        // For versioned transactions (which Jupiter uses)
+        if (transaction.message instanceof MessageV0) {
+            // Get the original message
+            const originalMessage = transaction.message;
+            
+            // Get the sponsor's public key
+            const sponsorPubkey = ENV_SECRET_KEYPAIR.publicKey;
 
-            // For versioned transactions (which Jupiter uses)
-            if (transaction.message instanceof MessageV0) {
-                // Get the original message
-                const originalMessage = transaction.message;
+            // Get all original signers from the transaction
+            const originalSigners = originalMessage.staticAccountKeys.slice(
+                0,
+                originalMessage.header.numRequiredSignatures
+            );
+            
+            // Create a new header where only the sponsor is a fee-paying signer
+            // All other signers are required but won't pay fees
+            const newHeader = {
+                numRequiredSignatures: originalMessage.header.numRequiredSignatures + 1, // +1 for the sponsor
+                numReadonlySignedAccounts: originalMessage.header.numReadonlySignedAccounts + originalSigners.length, // All original signers become readonly
+                numReadonlyUnsignedAccounts: originalMessage.header.numReadonlyUnsignedAccounts
+            };
+            
+            // Rearrange account keys:
+            // 1. Sponsor as the first and only fee-paying signer
+            // 2. Original signers as readonly signed accounts
+            // 3. All other accounts unchanged
+            const newStaticAccountKeys = [
+                // Sponsor as the only fee-paying signer
+                sponsorPubkey,
                 
-                // Get the sponsor's public key
-                const sponsorPubkey = ENV_SECRET_KEYPAIR.publicKey;
+                // Original signers now as readonly signed accounts
+                ...originalSigners,
                 
-                // Get the first signer's public key from the original transaction
-                // This is typically the user's public key
-                if (originalMessage.staticAccountKeys.length === 0) {
-                    throw new Error("Transaction has no account keys");
-                }
-                
-                const userPubkey = originalMessage.staticAccountKeys[0];
-                
-                // Debug logging
-                console.log("User pubkey:", userPubkey.toBase58());
-                console.log("Sponsor pubkey:", sponsorPubkey.toBase58());
-                
-                // Create a new header with two signers
-                const newHeader = {
-                    numRequiredSignatures: 2, // Two signers: sponsor and user
-                    numReadonlySignedAccounts: 1, // User is a readonly signer (doesn't pay fees)
-                    numReadonlyUnsignedAccounts: originalMessage.header.numReadonlyUnsignedAccounts
-                };
-                
-                // Create a new list of account keys with sponsor first
-                const newStaticAccountKeys = [
-                    // Sponsor as the fee-paying signer
-                    sponsorPubkey
-                ];
-                
-                // Add user key if not the same as sponsor (should never be the same in practice)
-                if (!userPubkey.equals(sponsorPubkey)) {
-                    newStaticAccountKeys.push(userPubkey);
-                }
-                
-                // Add the rest of the original keys (excluding the user and sponsor)
-                originalMessage.staticAccountKeys.forEach(key => {
-                    if (!key.equals(userPubkey) && !key.equals(sponsorPubkey)) {
-                        newStaticAccountKeys.push(key);
-                    }
-                });
+                // Rest of the accounts remain the same
+                ...originalMessage.staticAccountKeys.slice(
+                    originalMessage.header.numRequiredSignatures
+                )
+            ];
 
-                // Debug logging
-                console.log("New static account keys count:", newStaticAccountKeys.length);
-                
-                // Create a map for finding indices of accounts
-                const keyToNewIndex = new Map();
-                newStaticAccountKeys.forEach((key, index) => {
-                    keyToNewIndex.set(key.toBase58(), index);
-                });
-                
-                // Map from old indices to new indices
-                const mapAccountIndex = (oldIndex: number): number => {
-                    const oldKey = originalMessage.staticAccountKeys[oldIndex];
-                    const newIndex = keyToNewIndex.get(oldKey.toBase58());
-                    
-                    if (newIndex === undefined) {
-                        throw new Error(`Could not find new index for account key at old index ${oldIndex}`);
-                    }
-                    
-                    return newIndex;
-                };
-                
-                // Handle instructions carefully
-                const newInstructions = originalMessage.compiledInstructions.map(instruction => {
-                    try {
-                        return {
-                            programIdIndex: mapAccountIndex(instruction.programIdIndex),
-                            accountKeyIndexes: instruction.accountKeyIndexes.map(mapAccountIndex),
-                            data: instruction.data
-                        };
-                    } catch (err) {
-                        console.error("Error mapping instruction:", err);
-                        throw err;
-                    }
-                });
-                
-                // Create the new message
-                const newMessage = new MessageV0({
-                    header: newHeader,
-                    staticAccountKeys: newStaticAccountKeys,
-                    recentBlockhash: originalMessage.recentBlockhash,
-                    compiledInstructions: newInstructions,
-                    addressTableLookups: originalMessage.addressTableLookups
-                });
-                
-                // Create a new transaction with our modified message
-                const newTransaction = new VersionedTransaction(newMessage);
-                
-                // Initialize signatures array with empty signatures
-                newTransaction.signatures = Array(newHeader.numRequiredSignatures).fill(0)
-                    .map(() => new Uint8Array(64));
-                
-                // Sign with the sponsor's key (first position)
-                newTransaction.sign([ENV_SECRET_KEYPAIR]);
-                
-                // Return the sponsored transaction
-                return res.status(200).json({
-                    status: 'ok',
-                    transaction: Buffer.from(newTransaction.serialize()).toString('base64'),
-                    sponsorSignature: base58.encode(newTransaction.signatures[0])
-                });
-            } else {
-                // For legacy transactions
-                return res.status(400).json({ 
-                    status: 'error', 
-                    message: 'Only versioned transactions are supported' 
-                });
-            }
-        } catch (error) {
-            console.error('Transaction processing error:', error);
-            throw error;
+            // Create a new message with the modified account keys and header
+            const newMessage = new MessageV0({
+                header: newHeader,
+                staticAccountKeys: newStaticAccountKeys,
+                recentBlockhash: originalMessage.recentBlockhash,
+                compiledInstructions: originalMessage.compiledInstructions.map(instruction => {
+                    // Adjust instruction account indexes to match the new key arrangement
+                    return {
+                        ...instruction,
+                        accountKeyIndexes: instruction.accountKeyIndexes.map(index => {
+                            // If the index was a signer in the original transaction,
+                            // we need to adjust its position (it's now shifted by 1)
+                            if (index < originalMessage.header.numRequiredSignatures) {
+                                return index + 1; // +1 because sponsor is inserted at index 0
+                            }
+                            return index + originalSigners.length; // Other accounts are shifted by the number of original signers
+                        })
+                    };
+                }),
+                addressTableLookups: originalMessage.addressTableLookups
+            });
+            
+            // Create a new transaction with the modified message
+            const newTransaction = new VersionedTransaction(newMessage);
+            
+            // Initialize signatures array with empty signatures
+            newTransaction.signatures = Array.from(
+                { length: newHeader.numRequiredSignatures },
+                () => new Uint8Array(64)
+            );
+            
+            // Sign the transaction with the sponsor's key (first signature)
+            newTransaction.sign([ENV_SECRET_KEYPAIR]);
+            
+            // Return the sponsored transaction
+            return res.status(200).json({
+                status: 'ok',
+                transaction: Buffer.from(newTransaction.serialize()).toString('base64'),
+                sponsorSignature: base58.encode(newTransaction.signatures[0]), // Sponsor's signature
+                message: 'Transaction sponsored successfully. Only the sponsor will pay fees.'
+            });
+        } else {
+            // For legacy transactions
+            return res.status(400).json({ 
+                status: 'error', 
+                message: 'Only versioned transactions are supported' 
+            });
         }
     } catch (error) {
         console.error('Sponsor transaction error:', error);
