@@ -31,36 +31,33 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
             
             // Get the sponsor's public key
             const sponsorPubkey = ENV_SECRET_KEYPAIR.publicKey;
-
-            // Get all original signers from the transaction
-            const originalSigners = originalMessage.staticAccountKeys.slice(
-                0,
-                originalMessage.header.numRequiredSignatures
-            );
             
-            // Create a new header where only the sponsor is a fee-paying signer
-            // All other signers are required but won't pay fees
+            // Assuming the original transaction has one signer (the user)
+            // Get the user's public key (should be the first signer in original transaction)
+            const userPubkey = originalMessage.staticAccountKeys[0];
+            
+            // Create a new header
+            // The sponsor will be the only fee-paying signer
+            // The user will be a required signer but not pay fees
             const newHeader = {
-                numRequiredSignatures: originalMessage.header.numRequiredSignatures + 1, // +1 for the sponsor
-                numReadonlySignedAccounts: originalMessage.header.numReadonlySignedAccounts + originalSigners.length, // All original signers become readonly
+                numRequiredSignatures: 2, // Exactly two signers: sponsor and user
+                numReadonlySignedAccounts: 1, // User is a readonly signer (doesn't pay fees)
                 numReadonlyUnsignedAccounts: originalMessage.header.numReadonlyUnsignedAccounts
             };
             
-            // Rearrange account keys:
-            // 1. Sponsor as the first and only fee-paying signer
-            // 2. Original signers as readonly signed accounts
-            // 3. All other accounts unchanged
+            // Create the new account key list:
+            // 1. Sponsor as first fee-paying signer
+            // 2. User as readonly signed account
+            // 3. All other accounts from original transaction (excluding the user if already present)
             const newStaticAccountKeys = [
-                // Sponsor as the only fee-paying signer
+                // Sponsor as the fee-paying signer
                 sponsorPubkey,
                 
-                // Original signers now as readonly signed accounts
-                ...originalSigners,
+                // User as readonly signed account
+                userPubkey,
                 
-                // Rest of the accounts remain the same
-                ...originalMessage.staticAccountKeys.slice(
-                    originalMessage.header.numRequiredSignatures
-                )
+                // All other accounts (excluding user since we already included them)
+                ...originalMessage.staticAccountKeys.slice(1).filter(key => !key.equals(sponsorPubkey))
             ];
 
             // Create a new message with the modified account keys and header
@@ -73,12 +70,16 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
                     return {
                         ...instruction,
                         accountKeyIndexes: instruction.accountKeyIndexes.map(index => {
-                            // If the index was a signer in the original transaction,
-                            // we need to adjust its position (it's now shifted by 1)
-                            if (index < originalMessage.header.numRequiredSignatures) {
-                                return index + 1; // +1 because sponsor is inserted at index 0
+                            // If the index was pointing to the user's public key (index 0 in original transaction)
+                            if (index === 0) {
+                                return 1; // User is now at index 1
                             }
-                            return index + originalSigners.length; // Other accounts are shifted by the number of original signers
+                            
+                            // For all other accounts, adjust for the insertion of the sponsor
+                            // Need to consider if the sponsor was already in the original keys
+                            const originalKey = originalMessage.staticAccountKeys[index];
+                            const newIndex = newStaticAccountKeys.findIndex(key => key.equals(originalKey));
+                            return newIndex >= 0 ? newIndex : index + 1; // +1 because sponsor is inserted at index 0
                         })
                     };
                 }),
@@ -88,13 +89,13 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
             // Create a new transaction with the modified message
             const newTransaction = new VersionedTransaction(newMessage);
             
-            // Initialize signatures array with empty signatures
-            newTransaction.signatures = Array.from(
-                { length: newHeader.numRequiredSignatures },
-                () => new Uint8Array(64)
-            );
+            // Initialize signatures array with empty signatures for both signers
+            newTransaction.signatures = [
+                new Uint8Array(64), // Sponsor's signature placeholder
+                new Uint8Array(64)  // User's signature placeholder
+            ];
             
-            // Sign the transaction with the sponsor's key (first signature)
+            // Sign the transaction with the sponsor's key
             newTransaction.sign([ENV_SECRET_KEYPAIR]);
             
             // Return the sponsored transaction
