@@ -1,53 +1,53 @@
 import { NextApiRequest, NextApiResponse } from 'next';
-import { VersionedTransaction, Transaction, TransactionMessage } from '@solana/web3.js';
-import { signWithTokenFee, core } from '@solana/octane-core';
+import { VersionedTransaction } from '@solana/web3.js';
+import base58 from 'bs58';
 import config from '../../../../config.json';
-import {
-    cache,
-    connection,
-    ENV_SECRET_KEYPAIR,
-    cors,
-    rateLimit
-} from '../../src';
+import { cache, connection, cors, rateLimit } from '../../src';
+
+// Set this in your environment variables
+const SPONSOR_PRIVATE_KEY = base58.decode(process.env.SECRET_KEY);
 
 export default async function handler(req: NextApiRequest, res: NextApiResponse) {
     await cors(req, res);
     await rateLimit(req, res);
-  try {
-    const { transaction: swapTransaction, userPublicKey } = req.body;
     
-    // Deserialize transaction
-    const tx = VersionedTransaction.deserialize(
-      Buffer.from(swapTransaction, "base64")
-    );
+    try {
+        // Validate request method
+        if (req.method !== 'POST') {
+            return res.status(405).json({ status: 'error', message: 'Method not allowed' });
+        }
 
-    // Convert to legacy transaction for Octane compatibility
-    const legacyTx = new Transaction({
-      feePayer: tx.message.staticAccountKeys[0],
-      ...tx.message
-    });
+        // Get raw transaction from request body
+        const { transaction: transactionBase64 } = req.body;
+        if (!transactionBase64) {
+            return res.status(400).json({ status: 'error', message: 'Missing transaction' });
+        }
 
-    // Apply fee sponsorship
-    const { transaction: sponsoredTx } = await signWithTokenFee(
-      connection,
-      legacyTx,
-      ENV_SECRET_KEYPAIR,
-      config.maxSignatures,
-      config.lamportsPerSignature,
-      config.endpoints.transfer.tokens.map(core.TokenFee.fromSerializable),
-      cache
-    );
+        // Deserialize the transaction
+        const transactionBuffer = Buffer.from(transactionBase64, 'base64');
+        const transaction = VersionedTransaction.deserialize(transactionBuffer);
 
-    // Convert back to VersionedTransaction
-    const versionedTx = new VersionedTransaction(
-      new TransactionMessage(sponsoredTx).compileToV0Message()
-    );
+        // Verify the transaction is versioned
+        if (!transaction.version) {
+            return res.status(400).json({ status: 'error', message: 'Invalid transaction version' });
+        }
 
-    res.status(200).json({
-      transaction: Buffer.from(versionedTx.serialize()).toString("base64")
-    });
-    
-  } catch (error) {
-    res.status(400).json({ error: "Transaction sponsorship failed" });
-  }
+        // Sponsor signs the transaction
+        const sponsorSignature = transaction.sign([SPONSOR_PRIVATE_KEY]);
+
+        // Serialize the sponsored transaction
+        const sponsoredTransaction = transaction.serialize();
+
+        // Return the sponsored transaction
+        res.status(200).json({
+            status: 'ok',
+            transaction: sponsoredTransaction.toString('base64'),
+            sponsorSignature: base58.encode(sponsorSignature)
+        });
+
+    } catch (error) {
+        console.error('Sponsor transaction error:', error);
+        const message = error instanceof Error ? error.message : 'Unknown error';
+        res.status(400).json({ status: 'error', message });
+    }
 }
