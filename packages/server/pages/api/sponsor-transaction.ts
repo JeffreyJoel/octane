@@ -31,10 +31,17 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
             
             // Add the sponsor as a fee payer for the transaction
             const sponsorPubkey = ENV_SECRET_KEYPAIR.publicKey;
+
+            const newHeader = {
+                // Assuming we want 2 signers: the sponsor and the user
+                numRequiredSignatures: 2,
+                numReadonlySignedAccounts: message.header.numReadonlySignedAccounts,
+                numReadonlyUnsignedAccounts: message.header.numReadonlyUnsignedAccounts
+              };
             
             // Create a new message with the sponsor as a fee payer (first in the list)
             const newMessage = new MessageV0({
-                header: message.header,
+                header: newHeader,
                 staticAccountKeys: [
                     sponsorPubkey,
                     ...message.staticAccountKeys.filter(key => !key.equals(sponsorPubkey))
@@ -50,7 +57,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
             // Initialize signatures array with empty signatures for each key
             // VersionedTransaction.signatures is an array of Uint8Arrays
             newTransaction.signatures = Array.from(
-                { length: newMessage.staticAccountKeys.length },
+                { length: newHeader.numRequiredSignatures},
                 () => new Uint8Array(64)
               );
             
