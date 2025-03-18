@@ -30,16 +30,23 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
             return res.status(400).json({ status: 'error', message: 'Invalid transaction version' });
         }
 
-        // Sponsor signs the transaction
-        const sponsorSignature = transaction.sign([ENV_SECRET_KEYPAIR]);
+        transaction.sign([ENV_SECRET_KEYPAIR]);
 
-        // Serialize the sponsored transaction
-        const sponsoredTransaction = transaction.serialize();
+        // Get the sponsor's signature from the transaction
+        const sponsorIndex = transaction.message.accountKeys.findIndex(
+          (key: any) => key.equals(ENV_SECRET_KEYPAIR.publicKey)
+        );
+        
+        if (sponsorIndex === -1) {
+          throw new Error('Sponsor not found in transaction signers');
+        }
+      
+        const sponsorSignature = transaction.signatures[sponsorIndex];
 
         // Return the sponsored transaction
         res.status(200).json({
             status: 'ok',
-            transaction: sponsoredTransaction.toString(),
+            transaction: transaction.serialize(),
             sponsorSignature: base58.encode(sponsorSignature)
         });
 
