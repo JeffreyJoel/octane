@@ -56,7 +56,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
             // Create a new header with required signatures
             // Important: We need to make sure the number of required signatures is correct
             const newHeader = {
-                numRequiredSignatures: Math.max(2, message.header.numRequiredSignatures),
+                numRequiredSignatures: Math.max(1, message.header.numRequiredSignatures),
                 numReadonlySignedAccounts: message.header.numReadonlySignedAccounts,
                 numReadonlyUnsignedAccounts: message.header.numReadonlyUnsignedAccounts
             };
