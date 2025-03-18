@@ -4,7 +4,6 @@ import base58 from 'bs58';
 import config from '../../../../config.json';
 import { cache, connection, cors, rateLimit, ENV_SECRET_KEYPAIR } from '../../src';
 
-// Modify your backend handler
 export default async function handler(req: NextApiRequest, res: NextApiResponse) {
     await cors(req, res);
     await rateLimit(req, res);
@@ -27,89 +26,86 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
 
         // For versioned transactions (which Jupiter uses)
         if (transaction.message instanceof MessageV0) {
-            // Get the current message and sponsor key
-            const message = transaction.message;
+            // Get the original message
+            const originalMessage = transaction.message;
+            
+            // Get the sponsor's public key
             const sponsorPubkey = ENV_SECRET_KEYPAIR.publicKey;
-            
-            // IMPORTANT: Instead of reordering accounts, we add the sponsor
-            // as a fee payer while preserving the original account order
-            // This way we don't break instruction account references
-            
-            // First, check if sponsor is already in the accounts list
-            const sponsorKeyIndex = message.staticAccountKeys.findIndex(
-                key => key.equals(sponsorPubkey)
+
+            // Get all original signers from the transaction
+            const originalSigners = originalMessage.staticAccountKeys.slice(
+                0,
+                originalMessage.header.numRequiredSignatures
             );
             
-            // We'll create a list of accounts with sponsor first, followed by original accounts
-            // But we need to be careful with instruction indices
-            const newStaticAccountKeys = [...message.staticAccountKeys];
-            
-            // If sponsor is not in the account list, add it at index 0
-            if (sponsorKeyIndex === -1) {
-                newStaticAccountKeys.unshift(sponsorPubkey);
-            } else if (sponsorKeyIndex !== 0) {
-                // If the sponsor is in the list but not first, move it to first position
-                newStaticAccountKeys.splice(sponsorKeyIndex, 1); // Remove from current position
-                newStaticAccountKeys.unshift(sponsorPubkey); // Add to beginning
-            }
-            
-            // Create a new header with required signatures
-            // Important: We need to make sure the number of required signatures is correct
+            // Create a new header where only the sponsor is a fee-paying signer
+            // All other signers are required but won't pay fees
             const newHeader = {
-                numRequiredSignatures: Math.max(1, message.header.numRequiredSignatures),
-                numReadonlySignedAccounts: message.header.numReadonlySignedAccounts,
-                numReadonlyUnsignedAccounts: message.header.numReadonlyUnsignedAccounts
+                numRequiredSignatures: originalMessage.header.numRequiredSignatures + 1, // +1 for the sponsor
+                numReadonlySignedAccounts: originalMessage.header.numReadonlySignedAccounts + originalSigners.length, // All original signers become readonly
+                numReadonlyUnsignedAccounts: originalMessage.header.numReadonlyUnsignedAccounts
             };
             
-            // Now we need to update all instruction account references
-            // to reflect our account list changes
-            const updatedInstructions = message.compiledInstructions.map(instruction => {
-                // Create a mapping of old indices to new indices
-                const accountIndexMapping = message.staticAccountKeys.map((key, oldIndex) => {
-                    // Find where this key is in the new accounts list
-                    const newIndex = newStaticAccountKeys.findIndex(newKey => newKey.equals(key));
-                    return { oldIndex, newIndex };
-                });
+            // Rearrange account keys:
+            // 1. Sponsor as the first and only fee-paying signer
+            // 2. Original signers as readonly signed accounts
+            // 3. All other accounts unchanged
+            const newStaticAccountKeys = [
+                // Sponsor as the only fee-paying signer
+                sponsorPubkey,
                 
-                // Update the accountKeyIndexes to use new indices
-                const newAccountIndexes = instruction.accountKeyIndexes.map(oldIndex => {
-                    const mapping = accountIndexMapping.find(map => map.oldIndex === oldIndex);
-                    return mapping ? mapping.newIndex : oldIndex;
-                });
+                // Original signers now as readonly signed accounts
+                ...originalSigners,
                 
-                return {
-                    ...instruction,
-                    accountKeyIndexes: newAccountIndexes
-                };
-            });
-            
-            // Create a new message with updated accounts and instructions
+                // Rest of the accounts remain the same
+                ...originalMessage.staticAccountKeys.slice(
+                    originalMessage.header.numRequiredSignatures
+                )
+            ];
+
+            // Create a new message with the modified account keys and header
             const newMessage = new MessageV0({
                 header: newHeader,
                 staticAccountKeys: newStaticAccountKeys,
-                recentBlockhash: message.recentBlockhash,
-                compiledInstructions: updatedInstructions,
-                addressTableLookups: message.addressTableLookups
+                recentBlockhash: originalMessage.recentBlockhash,
+                compiledInstructions: originalMessage.compiledInstructions.map(instruction => {
+                    // Adjust instruction account indexes to match the new key arrangement
+                    return {
+                        ...instruction,
+                        accountKeyIndexes: instruction.accountKeyIndexes.map(index => {
+                            // If the index was a signer in the original transaction,
+                            // we need to adjust its position (it's now shifted by 1)
+                            if (index < originalMessage.header.numRequiredSignatures) {
+                                return index + 1; // +1 because sponsor is inserted at index 0
+                            }
+                            return index + originalSigners.length; // Other accounts are shifted by the number of original signers
+                        })
+                    };
+                }),
+                addressTableLookups: originalMessage.addressTableLookups
             });
             
             // Create a new transaction with the modified message
             const newTransaction = new VersionedTransaction(newMessage);
             
-            // Initialize signatures array matching the required signature count
-            newTransaction.signatures = Array(newHeader.numRequiredSignatures)
-                .fill(0)
-                .map(() => new Uint8Array(64));
+            // Initialize signatures array with empty signatures
+            newTransaction.signatures = Array.from(
+                { length: newHeader.numRequiredSignatures },
+                () => new Uint8Array(64)
+            );
             
-            // Sign the transaction with the sponsor's key
+            // Sign the transaction with the sponsor's key (first signature)
             newTransaction.sign([ENV_SECRET_KEYPAIR]);
             
             // Return the sponsored transaction
             return res.status(200).json({
                 status: 'ok',
                 transaction: Buffer.from(newTransaction.serialize()).toString('base64'),
-                sponsorSignature: base58.encode(newTransaction.signatures[0])
+                sponsorSignature: base58.encode(newTransaction.signatures[0]), // Sponsor's signature
+                message: 'Transaction sponsored successfully. Only the sponsor will pay fees.'
             });
         } else {
+            // For legacy transactions
             return res.status(400).json({ 
                 status: 'error', 
                 message: 'Only versioned transactions are supported' 
