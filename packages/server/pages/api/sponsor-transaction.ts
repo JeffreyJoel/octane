@@ -26,9 +26,10 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
         const transaction = VersionedTransaction.deserialize(transactionBuffer);
 
         // Verify the transaction is versioned
-        if (!transaction.version) {
-            return res.status(400).json({ status: 'error', message: 'Invalid transaction version' });
-        }
+        // if (!transaction.version) {
+
+        //     return res.status(400).json({ status: 'error', message: 'Invalid transaction version' });
+        // }
 
         transaction.sign([ENV_SECRET_KEYPAIR]);
         
