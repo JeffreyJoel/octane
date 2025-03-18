@@ -49,7 +49,10 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
             
             // Initialize signatures array with empty signatures for each key
             // VersionedTransaction.signatures is an array of Uint8Arrays
-            newTransaction.signatures = new Array(newMessage.staticAccountKeys.length).fill(new Uint8Array(64));
+            newTransaction.signatures = Array.from(
+                { length: newMessage.staticAccountKeys.length },
+                () => new Uint8Array(64)
+              );
             
             // Sign the transaction with the sponsor's key
             // This will update the first signature in the array (the fee payer position)
