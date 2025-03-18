@@ -39,7 +39,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
         // Return the sponsored transaction
         res.status(200).json({
             status: 'ok',
-            transaction: sponsoredTransaction.toString('base64'),
+            transaction: sponsoredTransaction.toString(),
             sponsorSignature: base58.encode(sponsorSignature)
         });
 
