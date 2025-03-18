@@ -2,10 +2,8 @@ import { NextApiRequest, NextApiResponse } from 'next';
 import { VersionedTransaction } from '@solana/web3.js';
 import base58 from 'bs58';
 import config from '../../../../config.json';
-import { cache, connection, cors, rateLimit } from '../../src';
+import { cache, connection, cors, rateLimit, ENV_SECRET_KEYPAIR } from '../../src';
 
-// Set this in your environment variables
-const SPONSOR_PRIVATE_KEY = base58.decode(process.env.SECRET_KEY || '');
 
 export default async function handler(req: NextApiRequest, res: NextApiResponse) {
     await cors(req, res);
@@ -33,7 +31,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
         }
 
         // Sponsor signs the transaction
-        const sponsorSignature = transaction.sign([SPONSOR_PRIVATE_KEY]);
+        const sponsorSignature = transaction.sign([ENV_SECRET_KEYPAIR]);
 
         // Serialize the sponsored transaction
         const sponsoredTransaction = transaction.serialize();
