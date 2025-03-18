@@ -31,12 +31,16 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
         }
 
         transaction.sign([ENV_SECRET_KEYPAIR]);
-
-        // Get the sponsor's signature from the transaction
-        const sponsorIndex = transaction.message.accountKeys.findIndex(
-          (key: any) => key.equals(ENV_SECRET_KEYPAIR.publicKey)
-        );
         
+        const accountKeys = transaction.message.getAccountKeys();
+        if (!accountKeys) {
+          throw new Error('No account keys found in transaction');
+        }
+      
+        // Find sponsor index using staticAccountKeys
+        const sponsorIndex = accountKeys.staticAccountKeys.findIndex(
+            (key: any) => key.equals(ENV_SECRET_KEYPAIR.publicKey)
+        );
         if (sponsorIndex === -1) {
           throw new Error('Sponsor not found in transaction signers');
         }
