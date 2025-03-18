@@ -69,19 +69,22 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
                 staticAccountKeys: newStaticAccountKeys,
                 recentBlockhash: originalMessage.recentBlockhash,
                 compiledInstructions: originalMessage.compiledInstructions.map(instruction => {
-                    // Adjust instruction account indexes to match the new key arrangement
                     return {
-                        ...instruction,
-                        accountKeyIndexes: instruction.accountKeyIndexes.map(index => {
-                            // If the index was a signer in the original transaction,
-                            // we need to adjust its position (it's now shifted by 1)
-                            if (index < originalMessage.header.numRequiredSignatures) {
-                                return index + 1; // +1 because sponsor is inserted at index 0
-                            }
-                            return index + originalSigners.length; // Other accounts are shifted by the number of original signers
-                        })
+                      ...instruction,
+                      accountKeyIndexes: instruction.accountKeyIndexes.map(index => {
+                        // If the index was a signer in the original transaction
+                        if (index < originalMessage.header.numRequiredSignatures) {
+                          return index + 1; // +1 because sponsor is inserted at index 0
+                        } 
+                        // If the index was not a signer in the original transaction
+                        else {
+                          // We need to shift by 1 (sponsor) but not by the signers length
+                          // because the signers were already accounted for in the original index
+                          return index + 1;
+                        }
+                      })
                     };
-                }),
+                  }),
                 addressTableLookups: originalMessage.addressTableLookups
             });
             
