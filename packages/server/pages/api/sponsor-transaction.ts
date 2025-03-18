@@ -5,7 +5,7 @@ import config from '../../../../config.json';
 import { cache, connection, cors, rateLimit } from '../../src';
 
 // Set this in your environment variables
-const SPONSOR_PRIVATE_KEY = base58.decode(process.env.SECRET_KEY);
+const SPONSOR_PRIVATE_KEY = base58.decode(process.env.SECRET_KEY || '');
 
 export default async function handler(req: NextApiRequest, res: NextApiResponse) {
     await cors(req, res);
