@@ -40,7 +40,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
     // The fee payer is determined by the account at index 0.
     // Check if the sponsor is already present in the static account keys.
     const sponsorKeyIndex = message.staticAccountKeys.findIndex(key => key.equals(sponsorPubkey));
-    let newStaticAccountKeys = [...message.staticAccountKeys];
+    const newStaticAccountKeys = [...message.staticAccountKeys];
 
     if (sponsorKeyIndex === -1) {
       // If the sponsor is not present, add it at the beginning.
