@@ -22,93 +22,111 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
 
         // Deserialize the transaction
         const transactionBuffer = Buffer.from(transactionBase64, 'base64');
-        const transaction = VersionedTransaction.deserialize(transactionBuffer);
+        const originalTransaction = VersionedTransaction.deserialize(transactionBuffer);
 
         // For versioned transactions (which Jupiter uses)
-        if (transaction.message instanceof MessageV0) {
-            // Get the original message
-            const originalMessage = transaction.message;
-            
-            // Get the sponsor's public key
+        if (originalTransaction.message instanceof MessageV0) {
+            const originalMessage = originalTransaction.message;
             const sponsorPubkey = ENV_SECRET_KEYPAIR.publicKey;
-
-            // Get all original signers from the transaction
-            const originalSigners = originalMessage.staticAccountKeys.slice(
-                0,
-                originalMessage.header.numRequiredSignatures
-            );
             
-            // Create a new header where only the sponsor is a fee-paying signer
-            // All other signers are required but won't pay fees
+            // First, simulate the original transaction to ensure it's valid
+            console.log("Simulating original transaction to validate...");
+            try {
+                const simulation = await connection.simulateTransaction(originalTransaction);
+                if (simulation.value.err) {
+                    console.error("Original transaction simulation failed:", simulation.value.err);
+                    return res.status(400).json({ 
+                        status: 'error', 
+                        message: `Original transaction is invalid: ${JSON.stringify(simulation.value.err)}` 
+                    });
+                }
+            } catch (simError) {
+                console.error("Error simulating original transaction:", simError);
+            }
+            
+            // Get the original fee payer (first signer)
+            const originalFeePayer = originalMessage.staticAccountKeys[0];
+            console.log("Original fee payer:", originalFeePayer.toBase58());
+            
+            // Create new account keys array with sponsor as the fee payer
+            const newStaticAccountKeys = [
+                sponsorPubkey, // Sponsor is the new fee payer
+                ...originalMessage.staticAccountKeys // Keep all original accounts in their order
+            ];
+            
+            // Create account index mapping (all original accounts shift by 1)
+            const accountIndexMap = new Map();
+            for (let i = 0; i < originalMessage.staticAccountKeys.length; i++) {
+                accountIndexMap.set(i, i + 1);
+            }
+            
+            // Map the instructions with updated account indices
+            const newInstructions = originalMessage.compiledInstructions.map(instruction => {
+                return {
+                    programIdIndex: accountIndexMap.get(instruction.programIdIndex),
+                    accountKeyIndexes: instruction.accountKeyIndexes.map(index => 
+                        accountIndexMap.get(index)
+                    ),
+                    data: instruction.data // Keep the same data
+                };
+            });
+            
+            // Create a new header with adjusted signature requirements
             const newHeader = {
-                numRequiredSignatures: originalMessage.header.numRequiredSignatures + 1, // +1 for the sponsor
-                numReadonlySignedAccounts: originalMessage.header.numReadonlySignedAccounts + originalSigners.length, // All original signers become readonly
+                numRequiredSignatures: originalMessage.header.numRequiredSignatures + 1, // Add sponsor signature
+                numReadonlySignedAccounts: originalMessage.header.numReadonlySignedAccounts,
                 numReadonlyUnsignedAccounts: originalMessage.header.numReadonlyUnsignedAccounts
             };
             
-            // Rearrange account keys:
-            // 1. Sponsor as the first and only fee-paying signer
-            // 2. Original signers as readonly signed accounts
-            // 3. All other accounts unchanged
-            const newStaticAccountKeys = [
-                // Sponsor as the only fee-paying signer
-                sponsorPubkey,
-                
-                // Original signers now as readonly signed accounts
-                ...originalSigners,
-                
-                // Rest of the accounts remain the same
-                ...originalMessage.staticAccountKeys.slice(
-                    originalMessage.header.numRequiredSignatures
-                )
-            ];
-
-            // Create a new message with the modified account keys and header
+            // Create a new message
             const newMessage = new MessageV0({
                 header: newHeader,
                 staticAccountKeys: newStaticAccountKeys,
                 recentBlockhash: originalMessage.recentBlockhash,
-                compiledInstructions: originalMessage.compiledInstructions.map(instruction => {
-                    return {
-                      ...instruction,
-                      accountKeyIndexes: instruction.accountKeyIndexes.map(index => {
-                        // If the index was a signer in the original transaction
-                        if (index < originalMessage.header.numRequiredSignatures) {
-                          return index + 1; // +1 because sponsor is inserted at index 0
-                        } 
-                        // If the index was not a signer in the original transaction
-                        else {
-                          // We need to shift by 1 (sponsor) but not by the signers length
-                          // because the signers were already accounted for in the original index
-                          return index + 1;
-                        }
-                      })
-                    };
-                  }),
+                compiledInstructions: newInstructions,
                 addressTableLookups: originalMessage.addressTableLookups
             });
             
-            // Create a new transaction with the modified message
+            // Create a new transaction with the new message
             const newTransaction = new VersionedTransaction(newMessage);
             
             // Initialize signatures array with empty signatures
-            newTransaction.signatures = Array.from(
-                { length: newHeader.numRequiredSignatures },
-                () => new Uint8Array(64)
-            );
+            newTransaction.signatures = new Array(newHeader.numRequiredSignatures).fill(0).map(() => new Uint8Array(64));
             
-            // Sign the transaction with the sponsor's key (first signature)
+            // Sign the transaction with the sponsor key
             newTransaction.sign([ENV_SECRET_KEYPAIR]);
+            
+            // Simulate the new transaction before returning it
+            console.log("Simulating sponsored transaction...");
+            try {
+                const simulation = await connection.simulateTransaction(newTransaction, {
+                    sigVerify: false, // Skip signature verification for simulation
+                });
+                
+                if (simulation.value.err) {
+                    console.error("Sponsored transaction simulation failed:", simulation.value.err);
+                    console.error("Simulation logs:", simulation.value.logs);
+                    return res.status(400).json({ 
+                        status: 'error', 
+                        message: `Sponsored transaction is invalid: ${JSON.stringify(simulation.value.err)}`,
+                        logs: simulation.value.logs
+                    });
+                }
+                
+                console.log("Simulation successful");
+            } catch (simError) {
+                console.error("Error simulating sponsored transaction:", simError);
+                // Continue even if simulation fails here - we'll let the frontend handle it
+            }
             
             // Return the sponsored transaction
             return res.status(200).json({
                 status: 'ok',
                 transaction: Buffer.from(newTransaction.serialize()).toString('base64'),
-                sponsorSignature: base58.encode(newTransaction.signatures[0]), // Sponsor's signature
-                message: 'Transaction sponsored successfully. Only the sponsor will pay fees.'
+                sponsorSignature: base58.encode(newTransaction.signatures[0]),
+                message: 'Transaction sponsored successfully.'
             });
         } else {
-            // For legacy transactions
             return res.status(400).json({ 
                 status: 'error', 
                 message: 'Only versioned transactions are supported' 
