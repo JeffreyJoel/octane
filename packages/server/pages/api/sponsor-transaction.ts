@@ -77,7 +77,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
     );
 
     let newStaticAccountKeys: PublicKey[];
-    let keyIndexMapping: Map<number, number> = new Map();
+    const keyIndexMapping: Map<number, number> = new Map();
 
     // We need to handle accounts carefully to maintain compatibility with instruction indices
     if (sponsorKeyIndex === -1) {
